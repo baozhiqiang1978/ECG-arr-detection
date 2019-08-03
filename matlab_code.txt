@@ -1,0 +1,178 @@
+clear all
+clc
+close all
+filename = '109.dat'; 
+
+fid=fopen(filename,'r');
+
+time=10;
+f=fread(fid,2*360*time,'ubit12');
+Orig_Sig=f(1:2:length(f));
+t = 0:(1/360):((length(Orig_Sig)/360)-(1/360));
+%plot(Orig_Sig)
+
+fc = [5 15];
+fs = 360;
+[b,a] = butter(1,fc/(fs/2),'bandpass');
+filtered_signal = filter(b,a,Orig_Sig);
+
+subplot(521)
+plot(t,Orig_Sig)
+title('Orginal ECG Signal')
+%axis([0 4000 0 (max(Orig_Sig([50:end]))+ max(Orig_Sig([50:end])/100))])
+subplot(523)
+plot(t,filtered_signal)
+title('Band-pass filtered signal')
+axis([0 10 0 (max(filtered_signal([80:end]))+max(filtered_signal([80:end])/10))])
+
+Nf = 8; 
+Fpass = 5; 
+Fstop = 15;
+
+x = diff(filtered_signal);
+x2 = x.^2;
+x22 = [x2; 0];
+
+subplot(525)
+plot(t,x22)
+axis([0 10 0 (max(x2([80:end]))+max(x2([80:end])/10))])
+title('differenced and squared signal')
+
+y = wthresh(x2,'h',max(x2([50:end]))/4);
+y = [y; 0];
+subplot(522)
+plot(t,y)
+axis([0 10 0 (max(y([80:end]))+max(y([80:end])/10))])
+title('Threshholded signal')
+
+L = 16;
+window = rectwin(L);
+
+y1 = conv(window, y);
+y1 = y1(1:3600);
+subplot(524)
+plot(t,y1)
+axis([0 10 0 (max(y1([80:end]))+max(y1([80:end])/10))])
+title('rect-windowed signal')
+
+for i=1:length(y1)
+if y1(i)< max(y1([80:end]))/5
+    th2(i) = 0;
+else
+    th2(i) = 1;
+end
+end
+
+subplot(526)
+plot(t,th2)
+axis([0 10 0 (max(th2([80:end]))+max(th2([80:end])/10))])
+title('Digitilized signal')
+
+[pks,loc,w,p] = findpeaks(th2,t);
+inter = zeros(1,length(loc)-1);
+for i=1:(length(loc)-1)
+    inter(i) = loc(i+1)-loc(i);
+     
+end
+htmax = 60/max(inter)
+htmin = 60/min(inter)
+
+fc2 = [0.5 10];
+fs2 = 360;
+
+[b2,a2] = butter(2,fc2/(fs2/2),'bandpass');
+p1 = filter(b2,a2,Orig_Sig);
+p = p1;
+Mc1 =0;
+for j=2:(length(loc)-1)
+    ri_1 = loc(j-1);
+    ri = loc(j);
+    ri1 = loc(j+1);
+
+    RR1 = ri - ri_1;
+    RR2 = ri1 - ri;
+    
+    Mc1 = RR1 + Mc1;
+    Mc = Mc1/(j-1);
+    
+    if((RR2<=(1.33*RR1)) && ((RR1+RR2<=0.7*fs))) %
+      % a = (ri-(27/1000)*RR1)*360:ri+((222/1000)*RR2*360)
+        p([int64((ri-(27/1000)*RR1)*360):int64((ri+(222/1000)*RR2)*360)])=0; %
+    elseif((RR2<=(1.5*RR1)) && ((RR1+RR2<=fs))) %
+        p(ri-(27/1000)*RR1:ri+(250/1000)*RR2)=0; %
+    elseif((RR2<=(1.76*RR1)) && ((RR1+RR2<=1.8*fs)))%
+        p(ri-(27/1000)*RR1:ri+(333/1000)*RR2)=0;%
+    elseif((RR2<=(1.35*RR1)) && ((RR1+RR2<=2*fs))) %
+        p(ri-(27/1000)*RR1:ri+(278/1000)*RR2)=0; %
+    end
+    if((RR2<=(0.3*RR1)) && (RR1<=fs))
+        p(ri-(27/1000)*RR1:ri+(194/1000)*RR2)=0;
+    elseif((RR2<=(0.4*RR1)) && (RR1<=fs))
+        p(ri-(27/1000)*RR1:ri+(250/1000)*RR2)=0;
+    elseif((RR2<=(0.65*RR1)) && (RR1<=fs))
+        p(ri-(27/1000)*RR1:ri+(278/1000)*RR2)=0;
+    elseif((RR2<=(0.8*RR1)) && (RR1<=fs))
+        p(ri-(27/1000)*RR1:ri+(361/1000)*RR2)=0;
+    end 
+    if((RR2>=0.9*fs) && (RR1>=0.9*fd))
+        p(ri-(27/1000)*RR1:ri+(111/1000)*RR2)=0;
+    elseif(RR2>=1.2*fs)
+        p(ri-(27/1000)*RR1:ri+(139/1000)*RR2)=0;
+    else
+        p(ri-(27/1000)*RR1:ri+(250/1000)*RR2)=0;
+    end
+end
+figure
+subplot(425)
+plot(t,p)
+subplot(421)
+plot(t,Orig_Sig)
+subplot(423)
+plot(t,p1)
+
+W1 = ceil(((70/1000)*360)*(Mc));
+%window1= rectwin(W1);
+%MEpeak = movingmean(p,W1);
+MEpeak = tsmovavg(p,'s',W1,1);
+W2 = ceil(((140/1000)*360)*(Mc));;
+%MEtwave = movingmean(p,W2);
+MEtwave = tsmovavg(p,'s',W2,1); 
+subplot(427)
+plot(t,MEpeak)
+
+subplot(422)
+plot(t,MEtwave)
+
+for k=1:length(MEtwave)
+    if(MEpeak(k)> MEtwave(k))
+        out(k)=1;
+    else
+        out(k)=0;
+    end
+end
+subplot(424)
+plot(t,out)
+axis([0 10 0 1.4])
+
+Dmin= (170/1000);
+Dmax= (800/1000);
+
+out2 = out;
+
+for l=1:length(loc)-1
+    RTmin(l) = (abs((loc(l+1)-loc(l))*Dmin));
+    RTmax(l) = (abs((loc(l+1)-loc(l))*Dmax));
+    RTmin2(l) = ceil(RTmin(l)*360);
+    RTmax2(l) = ceil(RTmax(l)*360);
+    
+    out2((loc(l)*360) : ((loc(l)*360)+RTmin2(l))) = 0;
+    out2(((loc(l)*360)+RTmax2(l)) : (loc(l+1)*360)) = 0;
+end
+
+subplot(426)
+plot(t,out2)
+axis([0 10 0 1.2])
+
+subplot(428)
+plot(t,th2)
+axis([0 10 0 1.2])
